@@ -139,11 +139,34 @@ For **better accuracy**:
 
 ```
 project-gordon/
-├── voice_assistant.py      # Main assistant class
+├── vad/                   # Voice Activity Detection
+│   ├── __init__.py
+│   └── README.md         # Audio capture & silence detection
+│
+├── stt/                   # Speech-to-Text
+│   ├── __init__.py
+│   └── README.md         # Whisper transcription engine
+│
+├── llm/                   # Language Model
+│   ├── __init__.py
+│   └── README.md         # Ollama + LangChain integration
+│
+├── tts/                   # Text-to-Speech
+│   ├── __init__.py
+│   └── README.md         # pyttsx3 speech synthesis
+│
+├── voice_assistant.py     # Main orchestrator
 ├── test_ollama.py         # Setup verification script
 ├── requirements.txt       # Python dependencies
 └── README.md             # This file
 ```
+
+**Modular Architecture:**
+Each component (`vad/`, `stt/`, `llm/`, `tts/`) is independently testable and optimizable, allowing you to:
+- Benchmark and reduce latency for each stage separately
+- Swap implementations (e.g., replace Whisper with another STT engine)
+- Test components in isolation
+- Scale and optimize the bottlenecks independently
 
 ### Running Tests
 
