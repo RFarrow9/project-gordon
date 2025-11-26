@@ -158,7 +158,8 @@ project-gordon/
 ├── voice_assistant.py     # Main orchestrator
 ├── test_ollama.py         # Setup verification script
 ├── requirements.txt       # Python dependencies
-└── README.md             # This file
+├── README.md             # Human-readable documentation
+└── agent.md              # AI agent documentation
 ```
 
 **Modular Architecture:**
@@ -182,6 +183,13 @@ Common extensions:
 - **Wake Word**: Integrate wake word detection
 - **Streaming TTS**: Use faster streaming text-to-speech
 - **Custom Voices**: Add voice customization options
+
+### Documentation Guidelines
+
+**IMPORTANT:** When making commits, refactors, or code changes:
+- Update **README.md** with human-friendly explanations
+- Update **agent.md** with technical details for AI agents
+- Keep both documentation files in sync
 
 ## 🔧 Troubleshooting
 
