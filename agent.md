@@ -17,8 +17,11 @@ Microphone → VAD → STT → LLM → TTS → Speakers
 ### 1. `vad/` - Voice Activity Detection
 - **Purpose:** Audio capture and speech detection
 - **Input:** Raw microphone audio
-- **Output:** Audio segments (when speech detected)
+- **Output:** `AudioSegment` objects (when speech detected)
 - **Performance target:** ~100-200ms detection latency
+- **Implementation:** WebRTC VAD algorithm with SimpleVAD fallback
+- **Status:** ✅ Complete
+- **Dependencies:** `sounddevice`, `webrtcvad` (optional), `numpy`
 
 ### 2. `stt/` - Speech-to-Text
 - **Purpose:** Transcribe audio to text using OpenAI Whisper
@@ -51,14 +54,61 @@ Microphone → VAD → STT → LLM → TTS → Speakers
 ## Code Organization
 
 - Each component folder contains:
-  - `__init__.py` - Module initialization
+  - `__init__.py` - Module initialization and exports
   - `README.md` - Human-readable documentation
-  - Implementation files (to be added during refactor)
+  - `core.py` - Core implementation (main service classes)
+  - `cli.py` - Command-line interface for testing
+  - `tests/` - Unit and integration tests
+  - `pytest.ini` - Pytest configuration
 
 - Root files:
   - `voice_assistant.py` - Main orchestrator that connects all components
   - `test_ollama.py` - Setup verification script
   - `requirements.txt` - Python dependencies
+
+## Module Architecture Details
+
+### VAD Module (`vad/`)
+
+**Files:**
+- `core.py` - Main implementation
+  - `VoiceActivityDetector`: WebRTC-based VAD (primary)
+  - `SimpleVAD`: Energy-based fallback
+  - `AudioSegment`: Audio data container
+- `cli.py` - CLI for testing microphone, listing devices, recording
+- `tests/` - Comprehensive test suite
+  - `test_core.py`: Unit tests for VAD classes
+  - `conftest.py`: Fixtures for audio testing
+  - Audio tests require `--with-audio` flag
+
+**Key Design Decisions:**
+- **OS-Agnostic**: Uses `sounddevice` instead of PyAudio for better cross-platform support
+- **Docker-First**: Optimized for Linux/Docker but works everywhere
+- **WebRTC VAD**: Industry-standard algorithm, optional SimpleVAD fallback
+- **Generator Pattern**: `detect_speech()` yields segments as they're detected
+- **No File I/O in Core**: Audio segments are in-memory, saving is optional
+
+**Integration Pattern:**
+```python
+from vad import VoiceActivityDetector, AudioSegment
+
+vad = VoiceActivityDetector(aggressiveness=3)
+for segment in vad.detect_speech(max_duration_s=30):
+    # segment is AudioSegment ready for STT
+    pass
+```
+
+### LLM Module (`llm/`)
+
+**Files:**
+- `core.py` - GPU-first local LLM with transformers
+- `cli.py` - Interactive chat interface
+- `tests/` - Performance and functional tests
+
+**Key Design Decisions:**
+- **GPU Preference**: Auto-detects CUDA/MPS/CPU
+- **4-bit Quantization**: Optional memory optimization
+- **Small Models**: Phi-3, TinyLlama, Llama-3.2-1B support
 
 ## Development Guidelines
 
@@ -76,6 +126,28 @@ Microphone → VAD → STT → LLM → TTS → Speakers
 - Update component README if responsibilities change
 - Add tests that can run in isolation
 
+### OS-Agnostic Development
+
+**IMPORTANT:** All components must work across Linux, Windows, and macOS. When Docker/Linux is the primary target:
+
+**Do:**
+- ✅ Use cross-platform libraries (`sounddevice` over PyAudio, `pathlib` over `os.path`)
+- ✅ Test on multiple platforms when possible
+- ✅ Provide fallback implementations (e.g., SimpleVAD when WebRTC unavailable)
+- ✅ Document Docker-specific setup in README
+- ✅ Use environment detection sparingly and only when necessary
+
+**Don't:**
+- ❌ Hardcode OS-specific paths or commands in core logic
+- ❌ Use Windows-only or Linux-only libraries without fallbacks
+- ❌ Assume specific audio device names/indices
+- ❌ Rely on OS-specific features without graceful degradation
+
+**Docker Priority:**
+- When choosing between equivalent libraries, prefer the one that works best in Docker/Linux
+- Ensure audio devices can be passed through (`--device /dev/snd`)
+- Document required system packages (e.g., `portaudio19-dev`)
+
 ### Performance Optimization
 
 - Profile each component separately
@@ -87,16 +159,26 @@ Microphone → VAD → STT → LLM → TTS → Speakers
 **Status:** Refactoring in progress (branch: `refactor`)
 - ✅ Folder structure created
 - ✅ Component READMEs written
-- ⏳ Moving existing code into components
-- ⏳ Adding independent tests for each component
+- ✅ LLM module complete (GPU-first local text generation)
+- ✅ VAD module complete (OS-agnostic voice activity detection)
+- ⏳ STT module (Speech-to-Text with Whisper)
+- ⏳ TTS module (Text-to-Speech)
 
 ## Technology Stack
 
+### Current Modules
+- **VAD:** WebRTC VAD + sounddevice (OS-agnostic audio)
+- **LLM:** Transformers + PyTorch (GPU-accelerated local models)
+
+### Planned Modules
 - **STT:** OpenAI Whisper (local)
-- **LLM:** Ollama (local) with LangChain
 - **TTS:** pyttsx3 (offline)
-- **Audio:** PyAudio for capture
-- **Language:** Python 3.x
+
+### Infrastructure
+- **Audio I/O:** sounddevice (cross-platform)
+- **ML Framework:** PyTorch with CUDA/MPS support
+- **Testing:** pytest with custom markers
+- **Language:** Python 3.11+
 
 ## Future Enhancements
 
@@ -109,4 +191,4 @@ Planned improvements (from README.md):
 
 ---
 
-**Last Updated:** 2025-11-26 (Initial creation during modular refactor)
+**Last Updated:** 2025-12-14 (VAD module completed - OS-agnostic implementation)
