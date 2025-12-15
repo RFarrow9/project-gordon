@@ -4,7 +4,7 @@
 
 ## Overview
 
-Project Gordon is a low-latency voice-enabled local LLM assistant. The codebase is structured as a modular pipeline with four independent, testable components.
+Project Gordon is a low-latency voice-enabled local LLM assistant. The codebase is structured as a modular pipeline with four independent components. Whether this modularity is the right choice depends on how much inter-component optimization we're sacrificing for testability.
 
 ## Architecture Pipeline
 
@@ -18,10 +18,11 @@ Microphone → VAD → STT → LLM → TTS → Speakers
 - **Purpose:** Audio capture and speech detection
 - **Input:** Raw microphone audio
 - **Output:** `AudioSegment` objects (when speech detected)
-- **Performance target:** ~100-200ms detection latency
+- **Performance target:** ~100-200ms detection latency (not validated under real conditions)
 - **Implementation:** WebRTC VAD algorithm with SimpleVAD fallback
-- **Status:** ✅ Complete
+- **Status:** Implemented but not tested with actual hardware or validated for latency
 - **Dependencies:** `sounddevice`, `webrtcvad` (optional), `numpy`
+- **Tradeoffs:** WebRTC VAD is solid but we're accepting its ~30ms frame processing limitation. SimpleVAD fallback may have different latency characteristics - untested.
 
 ### 2. `stt/` - Speech-to-Text
 - **Purpose:** Transcribe audio to text using OpenAI Whisper
@@ -46,10 +47,10 @@ Microphone → VAD → STT → LLM → TTS → Speakers
 
 ## Design Principles
 
-1. **Modularity:** Each component is independently testable and swappable
-2. **Low Latency:** Total pipeline target is 2-6 seconds end-to-end
-3. **Privacy-First:** Everything runs locally, no external API calls
-4. **Performance Optimization:** Each stage can be profiled and optimized independently
+1. **Modularity:** Each component is independently testable and swappable - but this means we can't do cross-component optimizations like starting TTS before LLM finishes. Question whether this tradeoff makes sense.
+2. **Low Latency:** Total pipeline target is 2-6 seconds end-to-end - this is slow for a voice assistant. We haven't validated if this is acceptable UX.
+3. **Privacy-First:** Everything runs locally, no external API calls - at the cost of worse model quality and higher hardware requirements.
+4. **Performance Optimization:** Each stage can be profiled and optimized independently - assumes the bottleneck isn't in the handoffs between components.
 
 ## Code Organization
 
@@ -81,12 +82,12 @@ Microphone → VAD → STT → LLM → TTS → Speakers
   - `conftest.py`: Fixtures for audio testing
   - Audio tests require `--with-audio` flag
 
-**Key Design Decisions:**
-- **OS-Agnostic**: Uses `sounddevice` instead of PyAudio for better cross-platform support
-- **Docker-First**: Optimized for Linux/Docker but works everywhere
-- **WebRTC VAD**: Industry-standard algorithm, optional SimpleVAD fallback
-- **Generator Pattern**: `detect_speech()` yields segments as they're detected
-- **No File I/O in Core**: Audio segments are in-memory, saving is optional
+**Key Design Decisions & Tradeoffs:**
+- **OS-Agnostic**: Uses `sounddevice` instead of PyAudio for better cross-platform support - but adds another dependency and sounddevice has its own quirks on Windows. Not tested comprehensively on all platforms.
+- **Docker-First**: Optimized for Linux/Docker but "works everywhere" is a claim that needs validation. Audio device passthrough in Docker is notoriously finicky.
+- **WebRTC VAD**: Industry-standard doesn't mean optimal for our use case. We're locked into its frame size constraints (10/20/30ms) and aggressiveness levels. Alternative: train custom VAD on voice assistant data.
+- **Generator Pattern**: `detect_speech()` yields segments as they're detected - clean API but forces sequential processing. Prevents batching or pipelining optimizations.
+- **No File I/O in Core**: Audio segments are in-memory - assumes we have enough RAM for speech segments. Could be an issue with long utterances or memory-constrained devices.
 
 **Integration Pattern:**
 ```python
@@ -105,10 +106,10 @@ for segment in vad.detect_speech(max_duration_s=30):
 - `cli.py` - Interactive chat interface
 - `tests/` - Performance and functional tests
 
-**Key Design Decisions:**
-- **GPU Preference**: Auto-detects CUDA/MPS/CPU
-- **4-bit Quantization**: Optional memory optimization
-- **Small Models**: Phi-3, TinyLlama, Llama-3.2-1B support
+**Key Design Decisions & Tradeoffs:**
+- **GPU Preference**: Auto-detects CUDA/MPS/CPU - but doesn't handle multi-GPU scenarios or let user override. May pick wrong device.
+- **4-bit Quantization**: Optional memory optimization - with quality degradation that's not quantified. No A/B testing of quantized vs full precision.
+- **Small Models**: Phi-3, TinyLlama, Llama-3.2-1B support - trading quality for speed. These models will give worse responses than larger models. Have we validated the quality is acceptable?
 
 ## Development Guidelines
 
@@ -128,25 +129,18 @@ for segment in vad.detect_speech(max_duration_s=30):
 
 ### OS-Agnostic Development
 
-**IMPORTANT:** All components must work across Linux, Windows, and macOS. When Docker/Linux is the primary target:
+All components should work across Linux, Windows, and macOS - but "OS-agnostic" is aspirational, not current reality. We haven't tested comprehensively on all platforms.
 
-**Do:**
-- ✅ Use cross-platform libraries (`sounddevice` over PyAudio, `pathlib` over `os.path`)
-- ✅ Test on multiple platforms when possible
-- ✅ Provide fallback implementations (e.g., SimpleVAD when WebRTC unavailable)
-- ✅ Document Docker-specific setup in README
-- ✅ Use environment detection sparingly and only when necessary
+**Critical thinking required:**
+- Cross-platform libraries like `sounddevice` and `pathlib` are better than OS-specific ones, but they're not magic. They have their own bugs and platform-specific behavior.
+- Fallback implementations (e.g., SimpleVAD) sound good but double the test surface area. Are we actually maintaining both paths?
+- Docker/Linux priority means Windows and macOS are second-class citizens. Is that acceptable given Windows is a common dev environment?
+- Audio device passthrough in Docker (`--device /dev/snd`) works in theory. Practice is messier - PulseAudio, ALSA, permissions, etc.
 
-**Don't:**
-- ❌ Hardcode OS-specific paths or commands in core logic
-- ❌ Use Windows-only or Linux-only libraries without fallbacks
-- ❌ Assume specific audio device names/indices
-- ❌ Rely on OS-specific features without graceful degradation
-
-**Docker Priority:**
-- When choosing between equivalent libraries, prefer the one that works best in Docker/Linux
-- Ensure audio devices can be passed through (`--device /dev/snd`)
-- Document required system packages (e.g., `portaudio19-dev`)
+**When making cross-platform changes:**
+- Test on the actual platform or clearly document it's untested
+- Don't assume environment detection works - it usually has edge cases
+- Question whether we need true cross-platform or if we should just pick Linux and document it
 
 ### Performance Optimization
 
@@ -157,12 +151,22 @@ for segment in vad.detect_speech(max_duration_s=30):
 ## Current State
 
 **Status:** Refactoring in progress (branch: `refactor`)
-- ✅ Folder structure created
-- ✅ Component READMEs written
-- ✅ LLM module complete (GPU-first local text generation)
-- ✅ VAD module complete (OS-agnostic voice activity detection)
-- ⏳ STT module (Speech-to-Text with Whisper)
-- ⏳ TTS module (Text-to-Speech)
+
+**What exists:**
+- Folder structure created
+- Component READMEs written (documentation != working code)
+- LLM module implemented (GPU-first local text generation) - not integration tested
+- VAD module implemented (OS-agnostic voice activity detection claim) - not validated on actual hardware or different OS platforms
+- STT module - not started
+- TTS module - not started
+
+**What's missing:**
+- End-to-end integration testing of the full pipeline
+- Performance validation against stated targets
+- Real hardware testing (we've been coding in a vacuum)
+- User testing to validate if 2-6 second latency is acceptable
+- Error handling between component boundaries
+- Production considerations (logging, monitoring, recovery)
 
 ## Technology Stack
 
@@ -182,13 +186,31 @@ for segment in vad.detect_speech(max_duration_s=30):
 
 ## Future Enhancements
 
-Planned improvements (from README.md):
-- Conversation memory/history
-- Wake word detection
-- Streaming TTS for lower latency
-- Custom voice profiles
-- Docker containerization
+Planned improvements - though adding features before validating current ones is questionable:
+- Conversation memory/history - will increase latency and memory usage
+- Wake word detection - another dependency, another thing to tune, more latency
+- Streaming TTS for lower latency - should this have been the initial design?
+- Custom voice profiles - nice-to-have that distracts from core functionality
+- Docker containerization - already claiming Docker-first, so what does this mean?
+
+**Reality check:** Before adding features, validate the current architecture actually works and meets performance requirements.
 
 ---
 
-**Last Updated:** 2025-12-14 (VAD module completed - OS-agnostic implementation)
+## Working with This Codebase
+
+**Expectations:**
+- **Challenge assumptions:** If something seems suboptimal, it probably is. Question design decisions and propose alternatives.
+- **Tradeoffs over perfection:** There are no perfect solutions. Every choice has costs. Make those costs explicit.
+- **Validate claims:** "Works on all platforms", "low latency", "production-ready" - these need proof, not documentation.
+- **Working code over documentation:** READMEs and tests mean nothing if the actual implementation doesn't work.
+- **Be critical:** If you see technical debt, poor abstractions, or questionable patterns - call them out. Don't be diplomatic.
+
+**Anti-patterns to avoid:**
+- Implementing features before validating existing ones work
+- Writing tests that mock everything (they prove nothing)
+- Optimizing for "clean code" over actual performance
+- Adding abstraction layers "for future flexibility" that never get used
+- Claiming something is done when it's only implemented but not validated
+
+**Last Updated:** 2025-12-15 (Tone adjusted - removed false confidence, added critical thinking)
