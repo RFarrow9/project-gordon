@@ -1,14 +1,27 @@
-# Core dependencies
+# VAD Module Dependencies
+sounddevice>=0.4.6
+webrtcvad>=2.0.10
+numpy>=1.24.0
+
+# LLM Module Dependencies
+torch>=2.0.0
+transformers>=4.30.0
+
+# STT Module Dependencies (future)
 openai-whisper>=20231117
+
+# TTS Module Dependencies (future)
 pyttsx3>=2.90
-pyaudio>=0.2.11
-langchain-community>=0.0.10
-ollama>=0.1.7
 
-# Optional: For better audio processing
-soundfile>=0.12.1
-librosa>=0.10.1
+# Legacy/Optional Dependencies
+pyaudio>=0.2.11  # Legacy audio, prefer sounddevice
+langchain-community>=0.0.10  # Legacy LLM
+ollama>=0.1.7  # Legacy LLM
+soundfile>=0.12.1  # Audio file I/O
+librosa>=0.10.1  # Audio processing
+langchain>=0.1.0  # Legacy LLM
+langchain-core>=0.1.0  # Legacy LLM
 
-# Optional: For enhanced LangChain features
-langchain>=0.1.0
-langchain-core>=0.1.0
+# Testing
+pytest>=7.4.0
+pytest-timeout>=2.1.0
