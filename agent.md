@@ -26,10 +26,13 @@ Microphone → VAD → STT → LLM → TTS → Speakers
 
 ### 2. `stt/` - Speech-to-Text
 - **Purpose:** Transcribe audio to text using OpenAI Whisper
-- **Input:** Audio segments from VAD
-- **Output:** Transcribed text
-- **Performance target:** 0.5-2 seconds (model-dependent)
-- **Default model:** `base` (balance of speed/accuracy)
+- **Input:** `AudioSegment` objects from VAD
+- **Output:** Transcribed text string (empty string on failure)
+- **Performance target:** 0.5-1.5s for base.en (not validated on actual hardware)
+- **Implementation:** Whisper base.en model (English-only optimization)
+- **Status:** Implemented but not integration tested with VAD or validated for accuracy/latency
+- **Dependencies:** `openai-whisper`, `torch`, `numpy`
+- **Tradeoffs:** Whisper is accurate but slow. We chose base.en (English-only, ~140MB) over multilingual for speed but locked ourselves to English. GPU required for acceptable latency - CPU fallback is 3-5x slower. Synchronous processing means we can't start LLM until transcription completes.
 
 ### 3. `llm/` - Language Model
 - **Purpose:** Generate conversational responses using Ollama
@@ -99,6 +102,40 @@ for segment in vad.detect_speech(max_duration_s=30):
     pass
 ```
 
+### STT Module (`stt/`)
+
+**Files:**
+- `core.py` - Main implementation
+  - `SpeechToText`: Whisper-based transcription with GPU acceleration
+- `cli.py` - CLI for testing file and live transcription
+- `tests/` - Unit tests (mocked to avoid slow model loading)
+  - `test_core.py`: Unit tests for SpeechToText class
+- `pytest.ini` - Test configuration
+
+**Key Design Decisions & Tradeoffs:**
+- **English-Only Optimization**: Uses `base.en` instead of multilingual base - 50% smaller and faster but cannot handle other languages. Accents and non-native speakers may see degraded accuracy.
+- **Whisper Choice**: Chose accuracy over speed. Whisper is slow (0.5-2s) compared to streaming models (Vosk ~100ms). Alternative: Use Wav2Vec2 or cloud APIs, but quality/privacy tradeoffs.
+- **GPU-First**: Auto-detects CUDA/MPS/CPU - same issues as LLM module (doesn't handle multi-GPU, may pick wrong device, no user override).
+- **Synchronous API**: `transcribe()` blocks until complete - prevents pipeline parallelism. Can't start LLM processing while still transcribing. Alternative: Async API or streaming transcription.
+- **VRAM Competition**: Loads another model into VRAM alongside LLM - may cause OOM on smaller GPUs. Base.en needs ~800MB FP16. No memory sharing between models.
+- **Error Handling**: Returns empty string on failure - caller can't distinguish between "no speech detected" vs "transcription failed" vs "model error". Silent failures.
+- **No Batching**: Processes one segment at a time - can't batch multiple segments for throughput optimization.
+
+**Integration Pattern:**
+```python
+from vad import VoiceActivityDetector
+from stt import SpeechToText
+
+vad = VoiceActivityDetector(aggressiveness=3)
+stt = SpeechToText(model_name="base.en")  # GPU auto-detected
+
+for segment in vad.detect_speech(max_duration_s=30):
+    text = stt.transcribe(segment)
+    if text:
+        print(f"Transcribed: {text}")
+    # Empty string = failure or no speech (ambiguous)
+```
+
 ### LLM Module (`llm/`)
 
 **Files:**
@@ -157,7 +194,7 @@ All components should work across Linux, Windows, and macOS - but "OS-agnostic" 
 - Component READMEs written (documentation != working code)
 - LLM module implemented (GPU-first local text generation) - not integration tested
 - VAD module implemented (OS-agnostic voice activity detection claim) - not validated on actual hardware or different OS platforms
-- STT module - not started
+- STT module implemented (Whisper base.en with GPU acceleration) - not integration tested with VAD, accuracy/latency not validated
 - TTS module - not started
 
 **What's missing:**
@@ -172,10 +209,10 @@ All components should work across Linux, Windows, and macOS - but "OS-agnostic" 
 
 ### Current Modules
 - **VAD:** WebRTC VAD + sounddevice (OS-agnostic audio)
+- **STT:** OpenAI Whisper base.en (English-only, GPU-accelerated)
 - **LLM:** Transformers + PyTorch (GPU-accelerated local models)
 
 ### Planned Modules
-- **STT:** OpenAI Whisper (local)
 - **TTS:** pyttsx3 (offline)
 
 ### Infrastructure
@@ -213,4 +250,4 @@ Planned improvements - though adding features before validating current ones is 
 - Adding abstraction layers "for future flexibility" that never get used
 - Claiming something is done when it's only implemented but not validated
 
-**Last Updated:** 2025-12-15 (Tone adjusted - removed false confidence, added critical thinking)
+**Last Updated:** 2025-12-15 (STT module implemented - Whisper base.en with GPU, not integration tested)
