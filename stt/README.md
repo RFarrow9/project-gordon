@@ -6,6 +6,26 @@
 
 The STT module converts speech audio into text using OpenAI's Whisper model. It's optimized for English and uses GPU acceleration when available. Designed to work seamlessly with AudioSegment objects from the VAD module.
 
+## Current Status
+
+**Implementation:** Complete - core functionality, CLI, and unit tests implemented.
+
+**Validation Status:**
+- ❌ **Not integration tested** with VAD module (no end-to-end testing yet)
+- ❌ **Latency not validated** on actual hardware (0.5-1.5s target is theoretical)
+- ❌ **Accuracy not measured** (no WER testing or quality validation)
+- ❌ **Multi-GPU scenarios** not tested or supported
+- ❌ **VRAM usage with concurrent LLM** not validated (may cause OOM)
+- ⚠️ **Platform testing:** Developed on Windows, not tested on Linux/macOS
+- ⚠️ **CPU fallback performance** not benchmarked (expected 3-5x slower than GPU)
+
+**Known Limitations:**
+- English-only (by design - using base.en model)
+- Synchronous API prevents pipeline parallelism
+- Silent failures (returns empty string on errors - cannot distinguish error types)
+- No batching or streaming support
+- Sample rate must be 16kHz for optimal quality
+
 ## Features
 
 - **English-Optimized**: Uses `base.en` model (smaller and faster than multilingual)
